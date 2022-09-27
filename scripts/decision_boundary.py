@@ -1,38 +1,35 @@
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
 from functools import reduce
 
 import numpy as np
 
-from ...preprocessing import LabelEncoder
-from ...utils import check_matplotlib_support
-from ...utils import _safe_indexing
-from ...base import is_regressor
-from ...utils.validation import check_is_fitted, _is_arraylike_not_scalar
+from sklearn.preprocessing import LabelEncoder
+from sklearn.utils import check_matplotlib_support
+from sklearn.utils import _safe_indexing
+from sklearn.base import is_regressor
+from sklearn.utils.validation import check_is_fitted
 
 
 def _check_boundary_response_method(estimator, response_method):
     """Return prediction method from the `response_method` for decision boundary.
-
     Parameters
     ----------
     estimator : object
         Fitted estimator to check.
-
     response_method : {'auto', 'predict_proba', 'decision_function', 'predict'}
         Specifies whether to use :term:`predict_proba`,
         :term:`decision_function`, :term:`predict` as the target response.
         If set to 'auto', the response method is tried in the following order:
         :term:`decision_function`, :term:`predict_proba`, :term:`predict`.
-
     Returns
     -------
     prediction_method: callable
         Prediction method of estimator.
     """
     has_classes = hasattr(estimator, "classes_")
-    if has_classes and _is_arraylike_not_scalar(estimator.classes_[0]):
-        msg = "Multi-label and multi-output multi-class classifiers are not supported"
-        raise ValueError(msg)
-
+    
     if has_classes and len(estimator.classes_) > 2:
         if response_method not in {"auto", "predict"}:
             msg = (
@@ -59,33 +56,24 @@ def _check_boundary_response_method(estimator, response_method):
 
 class DecisionBoundaryDisplay:
     """Decisions boundary visualization.
-
     It is recommended to use
     :func:`~sklearn.inspection.DecisionBoundaryDisplay.from_estimator`
     to create a :class:`DecisionBoundaryDisplay`. All parameters are stored as
     attributes.
-
     Read more in the :ref:`User Guide <visualizations>`.
-
     .. versionadded:: 1.1
-
     Parameters
     ----------
     xx0 : ndarray of shape (grid_resolution, grid_resolution)
         First output of :func:`meshgrid <numpy.meshgrid>`.
-
     xx1 : ndarray of shape (grid_resolution, grid_resolution)
         Second output of :func:`meshgrid <numpy.meshgrid>`.
-
     response : ndarray of shape (grid_resolution, grid_resolution)
         Values of the response function.
-
     xlabel : str, default=None
         Default label to place on x axis.
-
     ylabel : str, default=None
         Default label to place on y axis.
-
     Attributes
     ----------
     surface_ : matplotlib `QuadContourSet` or `QuadMesh`
@@ -93,10 +81,8 @@ class DecisionBoundaryDisplay:
         :class:`QuadContourSet <matplotlib.contour.QuadContourSet>`. If
         `plot_method is `pcolormesh`, `surface_` is a
         :class:`QuadMesh <matplotlib.collections.QuadMesh>`.
-
     ax_ : matplotlib Axes
         Axes with confusion matrix.
-
     figure_ : matplotlib Figure
         Figure containing the confusion matrix.
     """
@@ -110,7 +96,6 @@ class DecisionBoundaryDisplay:
 
     def plot(self, plot_method="contourf", ax=None, xlabel=None, ylabel=None, **kwargs):
         """Plot visualization.
-
         Parameters
         ----------
         plot_method : {'contourf', 'contour', 'pcolormesh'}, default='contourf'
@@ -119,20 +104,15 @@ class DecisionBoundaryDisplay:
             :func:`contourf <matplotlib.pyplot.contourf>`,
             :func:`contour <matplotlib.pyplot.contour>`,
             :func:`pcolomesh <matplotlib.pyplot.pcolomesh>`.
-
         ax : Matplotlib axes, default=None
             Axes object to plot on. If `None`, a new figure and axes is
             created.
-
         xlabel : str, default=None
             Overwrite the x-axis label.
-
         ylabel : str, default=None
             Overwrite the y-axis label.
-
         **kwargs : dict
             Additional keyword arguments to be passed to the `plot_method`.
-
         Returns
         -------
         display: :class:`~sklearn.inspection.DecisionBoundaryDisplay`
@@ -178,33 +158,26 @@ class DecisionBoundaryDisplay:
         **kwargs,
     ):
         """Plot decision boundary given an estimator.
-
         Read more in the :ref:`User Guide <visualizations>`.
-
         Parameters
         ----------
         estimator : object
             Trained estimator used to plot the decision boundary.
-
         X : {array-like, sparse matrix, dataframe} of shape (n_samples, 2)
             Input data that should be only 2-dimensional.
-
         grid_resolution : int, default=100
             Number of grid points to use for plotting decision boundary.
             Higher values will make the plot look nicer but be slower to
             render.
-
         eps : float, default=1.0
             Extends the minimum and maximum values of X for evaluating the
             response function.
-
         plot_method : {'contourf', 'contour', 'pcolormesh'}, default='contourf'
             Plotting method to call when plotting the response. Please refer
             to the following matplotlib documentation for details:
             :func:`contourf <matplotlib.pyplot.contourf>`,
             :func:`contour <matplotlib.pyplot.contour>`,
             :func:`pcolomesh <matplotlib.pyplot.pcolomesh>`.
-
         response_method : {'auto', 'predict_proba', 'decision_function', \
                 'predict'}, default='auto'
             Specifies whether to use :term:`predict_proba`,
@@ -213,30 +186,24 @@ class DecisionBoundaryDisplay:
             :term:`decision_function`, :term:`predict_proba`, :term:`predict`.
             For multiclass problems, :term:`predict` is selected when
             `response_method="auto"`.
-
         xlabel : str, default=None
             The label used for the x-axis. If `None`, an attempt is made to
             extract a label from `X` if it is a dataframe, otherwise an empty
             string is used.
-
         ylabel : str, default=None
             The label used for the y-axis. If `None`, an attempt is made to
             extract a label from `X` if it is a dataframe, otherwise an empty
             string is used.
-
         ax : Matplotlib axes, default=None
             Axes object to plot on. If `None`, a new figure and axes is
             created.
-
         **kwargs : dict
             Additional keyword arguments to be passed to the
             `plot_method`.
-
         Returns
         -------
         display : :class:`~sklearn.inspection.DecisionBoundaryDisplay`
             Object that stores the result.
-
         See Also
         --------
         DecisionBoundaryDisplay : Decision boundary visualization.
@@ -244,7 +211,6 @@ class DecisionBoundaryDisplay:
             given an estimator, the data, and the label.
         ConfusionMatrixDisplay.from_predictions : Plot the confusion matrix
             given the true and predicted labels.
-
         Examples
         --------
         >>> import matplotlib.pyplot as plt
