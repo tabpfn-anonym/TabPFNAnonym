@@ -163,7 +163,7 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
         if len(np.unique(y)) > self.max_num_classes:
             raise ValueError("The number of classes for this classifier is restricted to ", self.max_num_classes)
         if X.shape[0] > 1024:
-            print("⚠️ WARNING: TabPFN is not made for datasets with a trainingsize > 1024.")
+            print("⚠️ WARNING: TabPFN is not made for datasets with a trainingsize > 1024. Prediction might take a while and be less reliable.")
 
         # Return the classifier
         return self
