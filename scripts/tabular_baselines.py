@@ -37,31 +37,29 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import MinMaxScaler
 
-import autosklearn.classification
-
 CV = 5
 MULTITHREAD = 1 # Number of threads baselines are able to use at most
 param_grid, param_grid_hyperopt = {}, {}
 
 def get_scoring_direction(metric_used):
     # Not needed
-    if metric_used == tabular_metrics.auc_metric:
+    if metric_used.__name__ == tabular_metrics.auc_metric.__name__:
         return -1
-    elif metric_used == tabular_metrics.cross_entropy:
+    elif metric_used.__name__ == tabular_metrics.cross_entropy.__name__:
         return 1
     else:
         raise Exception('No scoring string found for metric')
 
 def is_classification(metric_used):
-    if metric_used == tabular_metrics.auc_metric or metric_used == tabular_metrics.cross_entropy:
+    if metric_used.__name__ == tabular_metrics.auc_metric.__name__ or metric_used.__name__ == tabular_metrics.cross_entropy.__name__:
         return 'classification'
-    elif metric_used == tabular_metrics.auc_metric:
+    elif metric_used.__name__ == tabular_metrics.auc_metric.__name__:
         return -1
 
 # Loss
 
 def get_scoring_string(metric_used, multiclass=True, usage="sklearn_cv"):
-    if metric_used == tabular_metrics.auc_metric:
+    if metric_used.__name__ == tabular_metrics.auc_metric.__name__:
         if usage == 'sklearn_cv':
             return 'roc_auc_ovo'
         elif usage == 'autogluon':
@@ -75,6 +73,7 @@ def get_scoring_string(metric_used, multiclass=True, usage="sklearn_cv"):
         elif usage == 'tabnet':
             return 'logloss' if multiclass else 'auc'
         elif usage == 'autosklearn':
+            import autosklearn.classification
             if multiclass:
                 return autosklearn.metrics.log_loss # roc_auc only works for binary, use logloss instead
             else:
@@ -89,7 +88,7 @@ def get_scoring_string(metric_used, multiclass=True, usage="sklearn_cv"):
             else:
                 return 'binary'
         return 'roc_auc'
-    elif metric_used == tabular_metrics.cross_entropy:
+    elif metric_used.__name__ == tabular_metrics.cross_entropy.__name__:
         if usage == 'sklearn_cv':
             return 'neg_log_loss'
         elif usage == 'autogluon':
@@ -97,12 +96,14 @@ def get_scoring_string(metric_used, multiclass=True, usage="sklearn_cv"):
         elif usage == 'tabnet':
             return 'logloss'
         elif usage == 'autosklearn':
+            import autosklearn.classification
             return autosklearn.metrics.log_loss
         elif usage == 'catboost':
             return 'MultiClass' # Effectively LogLoss
         return 'logloss'
-    elif metric_used == tabular_metrics.r2_metric:
+    elif metric_used.__name__ == tabular_metrics.r2_metric.__name__:
         if usage == 'autosklearn':
+            import autosklearn.classification
             return autosklearn.metrics.r2
         elif usage == 'sklearn_cv':
             return 'r2' # tabular_metrics.neg_r2
@@ -114,8 +115,9 @@ def get_scoring_string(metric_used, multiclass=True, usage="sklearn_cv"):
             return 'RMSE'
         else:
             return 'r2'
-    elif metric_used == tabular_metrics.root_mean_squared_error_metric:
+    elif metric_used.__name__ == tabular_metrics.root_mean_squared_error_metric.__name__:
         if usage == 'autosklearn':
+            import autosklearn.classification
             return autosklearn.metrics.root_mean_squared_error
         elif usage == 'sklearn_cv':
             return 'neg_root_mean_squared_error' # tabular_metrics.neg_r2
@@ -127,8 +129,9 @@ def get_scoring_string(metric_used, multiclass=True, usage="sklearn_cv"):
             return 'RMSE'
         else:
             return 'neg_root_mean_squared_error'
-    elif metric_used == tabular_metrics.mean_absolute_error_metric:
+    elif metric_used.__name__ == tabular_metrics.mean_absolute_error_metric.__name__:
         if usage == 'autosklearn':
+            import autosklearn.classification
             return autosklearn.metrics.mean_absolute_error
         elif usage == 'sklearn_cv':
             return 'neg_mean_absolute_error' # tabular_metrics.neg_r2
@@ -185,11 +188,11 @@ def preprocess_impute(x, y, test_x, test_y, impute, one_hot, standardize, cat_fe
 import torch
 import random
 from tqdm import tqdm
-def transformer_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
-    from scripts.transformer_prediction_interface import TabPFNClassifier
+def transformer_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300, device='cpu', N_ensemble_configurations=3, classifier=None):
+    from tabpfn.scripts.transformer_prediction_interface import TabPFNClassifier
 
-    classifier = TabPFNClassifier(device='cpu', base_path='.',
-                                  model_string='')
+    if classifier is None:
+      classifier = TabPFNClassifier(device=device, N_ensemble_configurations=N_ensemble_configurations)
     classifier.fit(x, y)
     print('Train data shape', x.shape, ' Test data shape', test_x.shape)
     pred = classifier.predict_proba(test_x)
@@ -223,88 +226,6 @@ def autogluon_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=3
         train_data=train_data,
         time_limit=max_time,
         presets=['best_quality']
-        # The seed is deterministic but varies for each dataset and each split of it
-    )
-
-    if is_classification(metric_used):
-        pred = predictor.predict_proba(test_data, as_multiclass=True).values
-    else:
-        pred = predictor.predict(test_data).values
-
-    metric = metric_used(test_y, pred)
-
-    return metric, pred, predictor.fit_summary()
-
-
-from autogluon.core.models import AbstractModel
-from scripts.transformer_prediction_interface import TabPFNClassifier
-
-
-class TabPFNModel(AbstractModel):
-    def __init__(self, **kwargs):
-        # Simply pass along kwargs to parent, and init our internal `_feature_generator` variable to None
-        super().__init__(**kwargs)
-
-    # The `_preprocess` method takes the input data and transforms it to the internal representation usable by the model.
-    # `_preprocess` is called by `preprocess` and is used during model fit and model inference.
-    def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> np.ndarray:
-        return X
-
-    # The `_fit` method takes the input training data (and optionally the validation data) and trains the model.
-    def _fit(self,
-             X: pd.DataFrame,  # training data
-             y: pd.Series,  # training labels
-             # X_val=None,  # val data (unused in RF model)
-             # y_val=None,  # val labels (unused in RF model)
-             # time_limit=None,  # time limit in seconds (ignored in tutorial)
-             **kwargs):  # kwargs includes many other potential inputs, refer to AbstractModel documentation for details
-
-        self.model = TabPFNClassifier(device='cpu', base_path='.',
-                                      N_ensemble_configurations=32)
-        self.model.fit(X.to_numpy(), y.to_numpy())
-
-    def _predict_proba(self, X, **kwargs):
-        X = self.preprocess(X, **kwargs)
-
-        #if self.problem_type in [REGRESSION, QUANTILE]:
-        #    y_pred = self.model.predict(X)
-        #    return y_pred
-
-        y_pred_proba = self.model.predict_proba(X.to_numpy())
-        return super()._convert_proba_to_unified_form(y_pred_proba)
-
-    # The `_set_default_params` method defines the default hyperparameters of the model.
-    # User-specified parameters will override these values on a key-by-key basis.
-    def _set_default_params(self):
-        default_params = {
-        }
-from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
-def autogluon_tabpfn_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
-    from autogluon.tabular import TabularPredictor
-    x, y, test_x, test_y = preprocess_impute(x, y, test_x, test_y
-                                             , one_hot=False
-                                             , cat_features=cat_features
-                                             , impute=False
-                                             , standardize=False)
-    train_data = pd.DataFrame(np.concatenate([x, y[:, np.newaxis]], 1))
-    test_data = pd.DataFrame(np.concatenate([test_x, test_y[:, np.newaxis]], 1))
-    if is_classification(metric_used):
-        problem_type = 'multiclass' if len(np.unique(y)) > 2 else 'binary'
-    else:
-        problem_type = 'regression'
-    # AutoGluon automatically infers datatypes, we don't specify the categorical labels
-    custom_hyperparameters = {}#get_hyperparameter_config('default')
-    custom_hyperparameters[TabPFNModel] = {}
-    predictor = TabularPredictor(
-        label=train_data.columns[-1],
-        eval_metric=get_scoring_string(metric_used, usage='autogluon', multiclass=(len(np.unique(y)) > 2)),
-        problem_type=problem_type
-        ## seed=int(y[:].sum()) doesn't accept seed
-    ).fit(
-        train_data=train_data,
-        time_limit=max_time,
-        presets=['best_quality'],
-        hyperparameters=custom_hyperparameters
         # The seed is deterministic but varies for each dataset and each split of it
     )
 
@@ -999,7 +920,7 @@ def ridge_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['ridge'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
         max_evals=10000)
@@ -1013,10 +934,10 @@ def ridge_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
 
     return metric, pred, best
 
-from lightautoml.automl.presets.tabular_presets import TabularAutoML, TabularUtilizedAutoML
-from lightautoml.tasks import Task
-
 def lightautoml_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
+    from lightautoml.automl.presets.tabular_presets import TabularAutoML, TabularUtilizedAutoML
+    from lightautoml.tasks import Task
+    
     x, y, test_x, test_y = preprocess_impute(x, y, test_x, test_y
                                              , one_hot=False, impute=False, standardize=False
                                              , cat_features=cat_features)
@@ -1081,7 +1002,7 @@ def lightgbm_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=30
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['lightgbm'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
         max_evals=10000)
@@ -1108,7 +1029,7 @@ def logistic_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=30
                                              , cat_features=cat_features)
 
     def clf_(**params):
-        return LogisticRegression(solver='saga', tol=1e-4, n_jobs=1, **params)
+        return LogisticRegression(solver='saga', tol=1e-4, n_jobs=MULTITHREAD, **params)
 
     start_time = time.time()
 
@@ -1119,16 +1040,62 @@ def logistic_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=30
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['logistic'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
-        max_evals=10000)
+        max_evals=1000)
     best = space_eval(param_grid_hyperopt['logistic'], best)
 
     clf = clf_(**best)
     clf.fit(x, y)
 
     pred = clf.predict_proba(test_x)
+    metric = metric_used(test_y, pred)
+
+    return metric, pred, best
+
+
+## Random Forest
+# Search space from
+# https://www.kaggle.com/code/emanueleamcappella/random-forest-hyperparameters-tuning/notebook
+param_grid_hyperopt['random_forest'] = {'n_estimators': hp.randint('n_estimators', 20, 200),
+               'max_features': hp.choice('max_features', ['auto', 'sqrt']),
+               'max_depth': hp.randint('max_depth', 1, 45),
+               'min_samples_split': hp.choice('min_samples_split', [5, 10])}
+def random_forest_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
+    from sklearn.ensemble import RandomForestClassifier
+
+    x, y, test_x, test_y = preprocess_impute(x, y, test_x, test_y,
+                                             one_hot=False, impute=True, standardize=False,
+                                             cat_features=cat_features)
+
+    def clf_(**params):
+        if is_classification(metric_used):
+            return RandomForestClassifier(n_jobs=MULTITHREAD, **params)
+        return RandomForestClassifier(n_jobs=MULTITHREAD, **params)
+
+    start_time = time.time()
+
+    def stop(trial):
+        return time.time() - start_time > max_time, []
+
+    best = fmin(
+        fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
+        space=param_grid_hyperopt['random_forest'],
+        algo=rand.suggest,
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
+        early_stop_fn=stop,
+        # The seed is deterministic but varies for each dataset and each split of it
+        max_evals=10000)
+    best = space_eval(param_grid_hyperopt['random_forest'], best)
+
+    clf = clf_(**best)
+    clf.fit(x, y)
+
+    if is_classification(metric_used):
+        pred = clf.predict_proba(test_x)
+    else:
+        pred = clf.predict(test_x)
     metric = metric_used(test_y, pred)
 
     return metric, pred, best
@@ -1143,8 +1110,8 @@ def knn_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
 
     def clf_(**params):
         if is_classification(metric_used):
-            return neighbors.KNeighborsClassifier(n_jobs=1, **params)
-        return neighbors.KNeighborsRegressor(n_jobs=1, **params)
+            return neighbors.KNeighborsClassifier(n_jobs=MULTITHREAD, **params)
+        return neighbors.KNeighborsRegressor(n_jobs=MULTITHREAD, **params)
 
     start_time = time.time()
 
@@ -1155,10 +1122,10 @@ def knn_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['knn'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
-        max_evals=10000)
+        max_evals=200)
     best = space_eval(param_grid_hyperopt['knn'], best)
 
     clf = clf_(**best)
@@ -1197,7 +1164,7 @@ def gp_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['gp'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
         max_evals=1000)
@@ -1272,7 +1239,7 @@ def tabnet_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300)
         fn=lambda params: tabnet_eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['tabnet'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         max_evals=1000)
     best = space_eval(param_grid_hyperopt['tabnet'], best)
@@ -1350,7 +1317,7 @@ def catboost_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=30
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['catboost'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
         max_evals=1000)
@@ -1416,7 +1383,7 @@ def xgb_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=300):
         fn=lambda params: eval_f(params, clf_, x, y, metric_used, start_time, max_time),
         space=param_grid_hyperopt['xgb'],
         algo=rand.suggest,
-        rstate=np.random.RandomState(int(y[:].sum())),
+        rstate=np.random.RandomState(int(y[:].sum()) % 10000),
         early_stop_fn=stop,
         # The seed is deterministic but varies for each dataset and each split of it
         max_evals=1000)
@@ -1450,7 +1417,7 @@ def ridge_metric(x, y, test_x, test_y, cat_features, metric_used):
     x, y, test_x, test_y = x.cpu(), y.cpu(), test_x.cpu(), test_y.cpu()
     x, test_x = torch.nan_to_num(x), torch.nan_to_num(test_x)
 
-    clf = RidgeClassifier(n_jobs=1)
+    clf = RidgeClassifier(n_jobs=MULTITHREAD)
 
     # create a dictionary of all values we want to test for n_neighbors
     # use gridsearch to test all values for n_neighbors
@@ -1509,10 +1476,13 @@ def mlp_acc(x, y, test_x, test_y, hyperparameters):
     return acc
 
 clf_dict = {'gp': gp_metric
+, 'transformer': transformer_metric
+, 'random_forest': random_forest_metric
                 , 'knn': knn_metric
                 , 'catboost': catboost_metric
                 , 'tabnet': tabnet_metric
                 , 'xgb': xgb_metric
+                , 'lightgbm': lightgbm_metric
             , 'ridge': ridge_metric
                 , 'logistic': logistic_metric
            , 'autosklearn': autosklearn_metric

@@ -1,5 +1,6 @@
 import torch
 import random
+import pathlib
 
 from torch.utils.checkpoint import checkpoint
 
@@ -61,7 +62,13 @@ def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='
     def check_file(e):
         model_file, model_path, results_file = get_file(e)
         if not Path(model_path).is_file():  # or Path(results_file).is_file():
-            return None, None, None
+            print('We have to download the TabPFN, as there is no checkpoint at ', model_path)
+            print('It has about 100MB, so this might take a moment.')
+            import requests
+            url = 'https://github.com/automl/TabPFN/raw/main/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt'
+            r = requests.get(url, allow_redirects=True)
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            open(model_path, 'wb').write(r.content)
         return model_file, model_path, results_file
 
     model_file = None
@@ -80,21 +87,20 @@ def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='
         raise Exception('No checkpoint found at '+str(model_path))
 
 
-    print(f'Loading {model_file}')
+    #print(f'Loading {model_file}')
 
     model, c = load_model(base_path, model_file, device, eval_positions=[], verbose=False)
 
     return model, c, results_file
 
+
 class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
-    def __init__(self, device='cpu', base_path='.', model_string='', i=0, N_ensemble_configurations=32
+    def __init__(self, device='cpu', base_path=pathlib.Path(__file__).parent.parent.resolve(), model_string='', i=0, N_ensemble_configurations=3
                  , combine_preprocessing=False, no_preprocess_mode=False, multiclass_decoder='permutation', feature_shift_decoder=True):
         # Model file specification (Model name, Epoch)
         i, e = i, -1
 
-        # File which contains result of hyperparameter tuning run: style (i.e. hyperparameters) and a dataframe with results.
-        #style_file = 'prior_tuning_result.pkl'
 
         model, c, results_file = load_model_workflow(i, e, add_name=model_string, base_path=base_path, device=device,
                                                      eval_addition='')
@@ -107,6 +113,8 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
         self.temperature = None
         self.N_ensemble_configurations = N_ensemble_configurations
         self.base__path = base_path
+        self.base_path = base_path
+        self.i = i
         self.model_string = model_string
 
         self.max_num_features = self.c['num_features']
@@ -149,9 +157,9 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
         return np.asarray(y, dtype=np.float64, order="C")
 
-    def fit(self, X, y):
+    def fit(self, X, y, overwrite_warning=False):
         # Check that X and y have correct shape
-        # X, y = check_X_y(X, y)
+        X, y = check_X_y(X, y, force_all_finite=False)
         # Store the classes seen during fit
         y = self._validate_targets(y)
 
@@ -162,8 +170,9 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
             raise ValueError("The number of features for this classifier is restricted to ", self.max_num_features)
         if len(np.unique(y)) > self.max_num_classes:
             raise ValueError("The number of classes for this classifier is restricted to ", self.max_num_classes)
-        if X.shape[0] > 1024:
-            print("⚠️ WARNING: TabPFN is not made for datasets with a trainingsize > 1024. Prediction might take a while and be less reliable.")
+        if X.shape[0] > 1024 and not overwrite_warning:
+            raise ValueError("⚠️ WARNING: TabPFN is not made for datasets with a trainingsize > 1024. Prediction might take a while, be less reliable. We advise not to run datasets > 10k samples, which might lead to your machine crashing (due to quadratic memory scaling of TabPFN). Please confirm you want to run by passing overwrite_warning=True to the fit function.")
+            
 
         # Return the classifier
         return self
@@ -173,7 +182,7 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
         check_is_fitted(self)
 
         # Input validation
-        # X = check_array(X)
+        X = check_array(X, force_all_finite=False)
         X_full = np.concatenate([self.X_, X], axis=0)
         X_full = torch.tensor(X_full, device=self.device).float().unsqueeze(1)
         y_full = np.concatenate([self.y_, np.zeros_like(X[:, 0])], axis=0)
@@ -427,8 +436,11 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
                                     message="None of the inputs have requires_grad=True. Gradients will be None")
             warnings.filterwarnings("ignore",
                                     message="torch.cuda.amp.autocast only affects CUDA ops, but CUDA is not available.  Disabling.")
-            with torch.cuda.amp.autocast(enabled=fp16_inference):
+            if device == 'cpu':
                 output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True)
+            else:
+                with torch.cuda.amp.autocast(enabled=fp16_inference):
+                    output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True)
         outputs += [output_batch]
     #print('MODEL INFERENCE TIME ('+str(batch_input.device)+' vs '+device+', '+str(fp16_inference)+')', str(time.time()-start))
 
