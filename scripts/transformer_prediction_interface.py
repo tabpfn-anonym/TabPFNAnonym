@@ -97,7 +97,7 @@ def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='
 class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(self, device='cpu', base_path=pathlib.Path(__file__).parent.parent.resolve(), model_string='', i=0, N_ensemble_configurations=3
-                 , combine_preprocessing=False, no_preprocess_mode=False, multiclass_decoder='permutation', feature_shift_decoder=True):
+                 , combine_preprocessing=False, no_preprocess_mode=False, multiclass_decoder='permutation', feature_shift_decoder=True, seed=0):
         # Model file specification (Model name, Epoch)
         i, e = i, -1
 
@@ -125,6 +125,7 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
         self.combine_preprocessing = combine_preprocessing
         self.feature_shift_decoder = feature_shift_decoder
         self.multiclass_decoder = multiclass_decoder
+        self.seed = seed
 
     def __getstate__(self):
         print('Pickle')
@@ -201,8 +202,9 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
                                          combine_preprocessing=self.combine_preprocessing,
                                          multiclass_decoder=self.multiclass_decoder,
                                          feature_shift_decoder=self.feature_shift_decoder,
-                                         differentiable_hps_as_style=self.differentiable_hps_as_style
-                                         , **get_params_from_config(self.c))
+                                         differentiable_hps_as_style=self.differentiable_hps_as_style,
+                                         seed=self.seed,
+                                         **get_params_from_config(self.c))
         prediction_, y_ = prediction.squeeze(0), y_full.squeeze(1).long()[eval_pos:]
 
         return prediction_.detach().cpu().numpy()
@@ -236,7 +238,9 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
                         differentiable_hps_as_style=False,
                         average_logits=True,
                         fp16_inference=False,
-                        normalize_with_sqrt=False, **kwargs):
+                        normalize_with_sqrt=False,
+                        seed=0,
+                        **kwargs):
     """
 
     :param model:
@@ -368,13 +372,16 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
 
     preprocess_transform_configurations = ['none', 'power_all'] if preprocess_transform == 'mix' else [preprocess_transform]
 
+    if seed is not None:
+        torch.manual_seed(seed)
+
     feature_shift_configurations = torch.randperm(eval_xs.shape[2]) if feature_shift_decoder else [0]
     class_shift_configurations = torch.randperm(len(torch.unique(eval_ys))) if multiclass_decoder == 'permutation' else [0]
 
     ensemble_configurations = list(itertools.product(class_shift_configurations, feature_shift_configurations))
     #default_ensemble_config = ensemble_configurations[0]
 
-    rng = random.Random(0)
+    rng = random.Random(seed)
     rng.shuffle(ensemble_configurations)
     ensemble_configurations = list(itertools.product(ensemble_configurations, preprocess_transform_configurations, styles_configurations))
     ensemble_configurations = ensemble_configurations[0:N_ensemble_configurations]
